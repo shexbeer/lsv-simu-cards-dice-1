@@ -306,11 +306,20 @@
       <li><b>P(Karte gewinnt | gespielt):</b> Wie häufig führt das Ausspielen einer
         bestimmten Karte zum Sieg? Bei „Optimal“ + „Zahlenstrahl“ entsteht der
         klassische Vorteil mittlerer Karten; auf dem „Kreis“ wird die Kurve flach.</li>
-      <li><b>P(Gewinn | Wurf = X):</b> Plausibilitätscheck: bei Tie-Bruch „Geteilt“
-        oder „Zufällig einer“ liegt der Wert ≈ 1; bei „Niemand gewinnt“ ist er
-        kleiner und zeigt die Tie-Rate.</li>
+      <li><b>Spielhäufigkeit pro Karte:</b> wie oft Index X überhaupt ausgespielt
+        wird. Zeigt bei „Optimal“ deutlich, dass Mittelkarten häufiger eingesetzt
+        werden als Randkarten.</li>
+      <li><b>P(Sieg | Karte gehalten):</b> Misst den „Kartenwert" unabhängig von der
+        Spielweise – jede Runde, in der die Karte irgendwo in einer Hand lag,
+        zählt im Nenner. Macht Optimal vs. Zufällig deutlicher.</li>
+      <li><b>Sieg-Effizienz:</b> P(Sieg|gespielt) minus Baseline (1/Spieleranzahl).
+        Werte über 0 = überdurchschnittlich, unter 0 = unterdurchschnittlich.</li>
       <li><b>Siegerdistanz-Histogramm:</b> Wie nah/fern war die Siegerkarte
         typischerweise am Wurf?</li>
+      <li><b>Heatmap Karte × Wurf:</b> normierte Sieghäufigkeit pro Karte über
+        alle Würfelwerte. Auf dem Zahlenstrahl entsteht eine Diagonale (Karte X
+        gewinnt vor allem bei Wurf nahe X); auf dem Kreis ist es ein Band um die
+        Diagonale, das auch „herumläuft".</li>
     </ul>
 
     <h3>Interpretationshinweise</h3>
@@ -715,12 +724,24 @@ function probWinGivenPlayed(r) {
   }
   return arr;
 }
-function probWinGivenRoll(r) {
+function probWinGivenHeld(r) {
   const arr = new Array(48);
   for (let i = 1; i <= 48; i++) {
-    arr[i-1] = r.rollsCount[i] > 0 ? r.winsByRoll[i] / r.rollsCount[i] : 0;
+    arr[i-1] = r.heldByCard[i] > 0 ? r.winsByCard[i] / r.heldByCard[i] : 0;
   }
   return arr;
+}
+function meanWinnerDistance(r) {
+  let s = 0, n = 0;
+  for (let i = 0; i < r.distHist.length; i++) { s += i * r.distHist[i]; n += r.distHist[i]; }
+  return n > 0 ? s / n : 0;
+}
+
+function seriesLabels(cfg, hasB) {
+  if (!hasB) return ['Serie'];
+  if (cfg.strategy === 'both') return ['Optimal', 'Zufällig'];
+  if (cfg.strategy === 'topocompare') return ['Zahlenstrahl', 'Kreis'];
+  return ['A', 'B'];
 }
 
 function render(cfg, results, durationMs) {
@@ -730,48 +751,41 @@ function render(cfg, results, durationMs) {
 
   const seriesA = results.A;
   const seriesB = results.B;
+  const [lblA, lblB] = seriesLabels(cfg, !!seriesB);
+  const baseline = 1 / cfg.players;
 
-  const datasetsCards = [{
-    label: seriesB ? 'Optimal' : 'P(Sieg | gespielt)',
-    data: probWinGivenPlayed(seriesA),
-    backgroundColor: 'rgba(79,140,255,0.7)',
-  }];
-  if (seriesB) datasetsCards.push({
-    label: 'Zufällig',
-    data: probWinGivenPlayed(seriesB),
-    backgroundColor: 'rgba(255,138,79,0.7)',
-  });
+  function ds(label, data, color) {
+    return { label, data, backgroundColor: color };
+  }
+  const cA = 'rgba(79,140,255,0.7)';
+  const cB = 'rgba(255,138,79,0.7)';
+
+  const datasetsCards = [ds(lblA, probWinGivenPlayed(seriesA), cA)];
+  if (seriesB) datasetsCards.push(ds(lblB, probWinGivenPlayed(seriesB), cB));
 
   const totalPlaysA = sum(seriesA.playsByCard);
   const playFreqA = labels.map((_, i) => totalPlaysA > 0 ? seriesA.playsByCard[i+1] / totalPlaysA : 0);
-  const datasetsPlays = [{
-    label: seriesB ? 'Optimal' : 'Anteil Auspielungen',
-    data: playFreqA,
-    backgroundColor: 'rgba(79,140,255,0.7)',
-  }];
+  const datasetsPlays = [ds(lblA, playFreqA, cA)];
   if (seriesB) {
     const totalPlaysB = sum(seriesB.playsByCard);
-    datasetsPlays.push({
-      label: 'Zufällig',
-      data: labels.map((_, i) => totalPlaysB > 0 ? seriesB.playsByCard[i+1] / totalPlaysB : 0),
-      backgroundColor: 'rgba(255,138,79,0.7)',
-    });
+    datasetsPlays.push(ds(lblB,
+      labels.map((_, i) => totalPlaysB > 0 ? seriesB.playsByCard[i+1] / totalPlaysB : 0), cB));
   }
+
+  const datasetsHeld = [ds(lblA, probWinGivenHeld(seriesA), cA)];
+  if (seriesB) datasetsHeld.push(ds(lblB, probWinGivenHeld(seriesB), cB));
+
+  const datasetsEff = [ds(lblA + ' − Baseline',
+    probWinGivenPlayed(seriesA).map(v => v - baseline), cA)];
+  if (seriesB) datasetsEff.push(ds(lblB + ' − Baseline',
+    probWinGivenPlayed(seriesB).map(v => v - baseline), cB));
 
   const sumA = sum(seriesA.distHist);
   const distA = seriesA.distHist.map(v => sumA > 0 ? v / sumA : 0);
-  const datasetsDist = [{
-    label: seriesB ? 'Optimal' : 'Anteil',
-    data: distA,
-    backgroundColor: 'rgba(79,140,255,0.7)',
-  }];
+  const datasetsDist = [ds(lblA, distA, cA)];
   if (seriesB) {
     const sumB = sum(seriesB.distHist);
-    datasetsDist.push({
-      label: 'Zufällig',
-      data: seriesB.distHist.map(v => sumB > 0 ? v / sumB : 0),
-      backgroundColor: 'rgba(255,138,79,0.7)',
-    });
+    datasetsDist.push(ds(lblB, seriesB.distHist.map(v => sumB > 0 ? v / sumB : 0), cB));
   }
 
   const common = {
@@ -782,6 +796,13 @@ function render(cfg, results, durationMs) {
       y: { ticks: { color: '#9aa3b2' }, grid: { color: '#2a313d' }, beginAtZero: true },
     },
   };
+  const commonEff = {
+    ...common,
+    scales: {
+      x: { ticks: { color: '#9aa3b2' }, grid: { color: '#2a313d' } },
+      y: { ticks: { color: '#9aa3b2' }, grid: { color: '#2a313d' } },
+    },
+  };
 
   chartCards = new Chart($('chart-cards'), {
     type: 'bar', data: { labels, datasets: datasetsCards }, options: common,
@@ -789,12 +810,98 @@ function render(cfg, results, durationMs) {
   chartPlays = new Chart($('chart-plays'), {
     type: 'bar', data: { labels, datasets: datasetsPlays }, options: common,
   });
+  chartHeld = new Chart($('chart-held'), {
+    type: 'bar', data: { labels, datasets: datasetsHeld }, options: common,
+  });
+  chartEff = new Chart($('chart-eff'), {
+    type: 'bar', data: { labels, datasets: datasetsEff }, options: commonEff,
+  });
   chartDist = new Chart($('chart-dist'), {
     type: 'bar', data: { labels: distLabels, datasets: datasetsDist }, options: common,
   });
 
+  // Heatmap
+  setupHeatmap(cfg, results, lblA, lblB);
+
   // Stats
   renderStats(cfg, results, durationMs);
+}
+
+/* ---------- Heatmap ---------- */
+let _heatmapState = null;
+function setupHeatmap(cfg, results, lblA, lblB) {
+  const tabs = $('heatmap-tabs');
+  if (results.B) {
+    tabs.style.display = 'flex';
+    $('heatmap-tab-a').textContent = lblA;
+    $('heatmap-tab-b').textContent = lblB;
+  } else {
+    tabs.style.display = 'none';
+  }
+  _heatmapState = { results, current: 'A' };
+  $('heatmap-tab-a').onclick = () => { _heatmapState.current = 'A'; drawHeatmap(); };
+  $('heatmap-tab-b').onclick = () => { _heatmapState.current = 'B'; drawHeatmap(); };
+  drawHeatmap();
+}
+function drawHeatmap() {
+  if (!_heatmapState) return;
+  const r = _heatmapState.results[_heatmapState.current];
+  if (!r) return;
+  const canvas = $('chart-heatmap');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#0f1115'; ctx.fillRect(0, 0, W, H);
+  // Normalize per card row (row-relative intensity)
+  // Build 48x48 normalized matrix
+  const matrix = new Float64Array(48 * 48);
+  let globalMax = 0;
+  for (let card = 1; card <= 48; card++) {
+    let rowMax = 0;
+    for (let roll = 1; roll <= 48; roll++) {
+      const v = r.winsByCardRoll[card * 49 + roll];
+      if (v > rowMax) rowMax = v;
+    }
+    for (let roll = 1; roll <= 48; roll++) {
+      const v = r.winsByCardRoll[card * 49 + roll];
+      const n = rowMax > 0 ? v / rowMax : 0;
+      matrix[(card - 1) * 48 + (roll - 1)] = n;
+      if (n > globalMax) globalMax = n;
+    }
+  }
+  const padL = 36, padT = 24, padR = 8, padB = 24;
+  const cellW = (W - padL - padR) / 48;
+  const cellH = (H - padT - padB) / 48;
+  // axes
+  ctx.fillStyle = '#9aa3b2';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let i = 1; i <= 48; i++) {
+    if (i % 4 === 0 || i === 1) ctx.fillText(String(i), padL + (i - 0.5) * cellW, 4);
+  }
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let i = 1; i <= 48; i++) {
+    if (i % 4 === 0 || i === 1) ctx.fillText(String(i), padL - 4, padT + (i - 0.5) * cellH);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('Würfelwurf →', padL + (W - padL - padR) / 2, H - 4);
+  ctx.save();
+  ctx.translate(10, padT + (H - padT - padB) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText('Karte', 0, 0);
+  ctx.restore();
+  // cells
+  for (let card = 0; card < 48; card++) {
+    for (let roll = 0; roll < 48; roll++) {
+      const v = matrix[card * 48 + roll];
+      const hue = 230 - v * 200; // blau -> rot
+      const light = 12 + v * 40;
+      ctx.fillStyle = `hsl(${hue}, 80%, ${light}%)`;
+      ctx.fillRect(padL + roll * cellW, padT + card * cellH, cellW + 0.5, cellH + 0.5);
+    }
+  }
+  $('heatmap-legend').textContent =
+    'Pro Zeile (Karte) auf 1 normiert: dunkles Blau = nie gewonnen bei diesem Wurf, helles Rot = häufigster Sieg-Wurf für diese Karte.';
 }
 
 function renderStats(cfg, r, durationMs) {
@@ -802,6 +909,7 @@ function renderStats(cfg, r, durationMs) {
   const tieRate = a.totalRounds > 0 ? a.tieRounds / a.totalRounds : 0;
   const farRate = a.totalRounds > 0 ? a.farthestRounds / a.totalRounds : 0;
   const rps = durationMs > 0 ? (a.totalRounds / (durationMs/1000)) : 0;
+  const meanDistA = meanWinnerDistance(a);
 
   const playersHtml = a.winsByPlayer.map((w, i) =>
     `<div class="stat"><div class="lbl">Spieler ${i+1} Siege</div>
@@ -810,11 +918,22 @@ function renderStats(cfg, r, durationMs) {
   let cmpHtml = '';
   if (r.B) {
     const b = r.B;
+    const [lblA, lblB] = seriesLabels(cfg, true);
+    const meanDistB = meanWinnerDistance(b);
     cmpHtml = `
-      <div class="stat"><div class="lbl">Ø Siege/Spieler (Optimal)</div>
+      <div class="stat"><div class="lbl">Ø Siege/Spieler (${lblA})</div>
         <div class="val">${fmt(sum(a.winsByPlayer)/cfg.players)}</div></div>
-      <div class="stat"><div class="lbl">Ø Siege/Spieler (Zufällig)</div>
+      <div class="stat"><div class="lbl">Ø Siege/Spieler (${lblB})</div>
         <div class="val">${fmt(sum(b.winsByPlayer)/cfg.players)}</div></div>
+      <div class="stat"><div class="lbl">Ø Siegerdistanz (${lblA})</div>
+        <div class="val">${meanDistA.toFixed(2)}</div></div>
+      <div class="stat"><div class="lbl">Ø Siegerdistanz (${lblB})</div>
+        <div class="val">${meanDistB.toFixed(2)}</div></div>
+    `;
+  } else {
+    cmpHtml = `
+      <div class="stat"><div class="lbl">Ø Siegerdistanz</div>
+        <div class="val">${meanDistA.toFixed(2)}</div></div>
     `;
   }
 
@@ -829,6 +948,8 @@ function renderStats(cfg, r, durationMs) {
       ${cfg.rule === 'random5050' ?
         `<div class="stat"><div class="lbl">Anteil "weiteste"-Runden</div>
          <div class="val">${(farRate*100).toFixed(2)} %</div></div>` : ''}
+      <div class="stat"><div class="lbl">Baseline P(Sieg)</div>
+        <div class="val">${(1/cfg.players).toFixed(3)}</div></div>
       <div class="stat"><div class="lbl">Runden / Sekunde</div>
         <div class="val">${Math.round(rps).toLocaleString('de-DE')}</div></div>
       <div class="stat"><div class="lbl">Dauer</div>
@@ -850,22 +971,43 @@ function buildCsv(cfg, results) {
   lines.push(`# W48-Simulation`);
   lines.push(`# Spieler=${cfg.players}; Topologie=${cfg.topology}; Regel=${cfg.rule}; Tie=${cfg.tie}; Strategie=${cfg.strategy}; Runs=${cfg.runs}`);
   const hasB = !!results.B;
-  const headParts = ['index','plays_A','wins_A','p_win_A'];
-  if (hasB) headParts.push('plays_B','wins_B','p_win_B');
+  const headParts = ['index','plays_A','wins_A','held_A','p_win_played_A','p_win_held_A'];
+  if (hasB) headParts.push('plays_B','wins_B','held_B','p_win_played_B','p_win_held_B');
   headParts.push('rolls_A','wins_by_roll_A','p_win_given_roll_A');
   if (hasB) headParts.push('rolls_B','wins_by_roll_B','p_win_given_roll_B');
   lines.push(headParts.join(','));
   const a = results.A, b = results.B;
   for (let i = 1; i <= 48; i++) {
-    const row = [i, a.playsByCard[i], a.winsByCard[i],
-      a.playsByCard[i] > 0 ? (a.winsByCard[i]/a.playsByCard[i]).toFixed(6) : '0'];
-    if (hasB) row.push(b.playsByCard[i], b.winsByCard[i],
-      b.playsByCard[i] > 0 ? (b.winsByCard[i]/b.playsByCard[i]).toFixed(6) : '0');
+    const row = [i, a.playsByCard[i], a.winsByCard[i], a.heldByCard[i],
+      a.playsByCard[i] > 0 ? (a.winsByCard[i]/a.playsByCard[i]).toFixed(6) : '0',
+      a.heldByCard[i] > 0 ? (a.winsByCard[i]/a.heldByCard[i]).toFixed(6) : '0'];
+    if (hasB) row.push(b.playsByCard[i], b.winsByCard[i], b.heldByCard[i],
+      b.playsByCard[i] > 0 ? (b.winsByCard[i]/b.playsByCard[i]).toFixed(6) : '0',
+      b.heldByCard[i] > 0 ? (b.winsByCard[i]/b.heldByCard[i]).toFixed(6) : '0');
     row.push(a.rollsCount[i], a.winsByRoll[i],
       a.rollsCount[i] > 0 ? (a.winsByRoll[i]/a.rollsCount[i]).toFixed(6) : '0');
     if (hasB) row.push(b.rollsCount[i], b.winsByRoll[i],
       b.rollsCount[i] > 0 ? (b.winsByRoll[i]/b.rollsCount[i]).toFixed(6) : '0');
     lines.push(row.join(','));
+  }
+  // Heatmap matrix
+  lines.push('');
+  lines.push('# Heatmap A: wins_by_card_roll, Zeile=Karte, Spalte=Wurf');
+  lines.push('card,' + Array.from({length:48}, (_, i) => 'r'+(i+1)).join(','));
+  for (let card = 1; card <= 48; card++) {
+    const row = [card];
+    for (let roll = 1; roll <= 48; roll++) row.push(a.winsByCardRoll[card*49+roll].toFixed(3));
+    lines.push(row.join(','));
+  }
+  if (hasB) {
+    lines.push('');
+    lines.push('# Heatmap B: wins_by_card_roll, Zeile=Karte, Spalte=Wurf');
+    lines.push('card,' + Array.from({length:48}, (_, i) => 'r'+(i+1)).join(','));
+    for (let card = 1; card <= 48; card++) {
+      const row = [card];
+      for (let roll = 1; roll <= 48; roll++) row.push(b.winsByCardRoll[card*49+roll].toFixed(3));
+      lines.push(row.join(','));
+    }
   }
   return lines.join('\n');
 }
