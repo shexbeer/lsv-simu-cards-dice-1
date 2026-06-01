@@ -174,9 +174,9 @@
     </div>
 
     <div class="field">
-      <label>Anzahl Simulations-Spiele: <span id="cfg-runs-val">10000</span></label>
-      <input type="range" id="cfg-runs" min="100" max="500000" step="100" value="10000" />
-      <input type="number" id="cfg-runs-num" min="1" max="2000000" value="10000" />
+      <label>Anzahl Simulations-Spiele: <span id="cfg-runs-val">250000</span></label>
+      <input type="range" id="cfg-runs" min="100" max="500000" step="100" value="250000" />
+      <input type="number" id="cfg-runs-num" min="1" max="2000000" value="250000" />
     </div>
 
     <div class="field">
@@ -555,7 +555,7 @@ function getConfig() {
     rule: elRule.value,
     tie: elTie.value,
     strategy: elStrategy.value,
-    runs: Math.max(1, Math.min(2000000, +elRunsNum.value || 10000)),
+    runs: Math.max(1, Math.min(2000000, +elRunsNum.value || 250000)),
     seedStr: elSeed.value.trim(),
   };
 }
@@ -638,7 +638,7 @@ btnReset.onclick = () => {
   elRule.value = 'closest';
   elTie.value = 'share';
   elStrategy.value = 'optimal';
-  elRuns.value = '10000'; elRunsNum.value = '10000'; elRunsVal.textContent = '10000';
+  elRuns.value = '250000'; elRunsNum.value = '250000'; elRunsVal.textContent = '250000';
   elSeed.value = '';
   lastResults = null; lastCfg = null;
   elStats.innerHTML = '';
