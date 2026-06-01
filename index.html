@@ -169,7 +169,8 @@
       <select id="cfg-strategy">
         <option value="optimal">Optimal</option>
         <option value="random">Zufällig</option>
-        <option value="both">Beide vergleichen</option>
+        <option value="both">Beide Strategien vergleichen</option>
+        <option value="topocompare">Topologien vergleichen (Strahl vs. Kreis)</option>
       </select>
     </div>
 
@@ -203,12 +204,29 @@
         <canvas id="chart-cards"></canvas>
       </div>
       <div class="chart-wrap">
-        <h3>P(Gewinn | Würfelwurf = X)</h3>
-        <canvas id="chart-rolls"></canvas>
+        <h3>Spielhäufigkeit pro Karte (wie oft wird Index X ausgespielt)</h3>
+        <canvas id="chart-plays"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <h3>P(Sieg | Karte gehalten) – unabhängig vom Ausspielen</h3>
+        <canvas id="chart-held"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <h3>Sieg-Effizienz: P(Sieg|gespielt) − Baseline (1/Spieler)</h3>
+        <canvas id="chart-eff"></canvas>
       </div>
       <div class="chart-wrap full">
         <h3>Histogramm: Distanz der Siegerkarte zum Wurf</h3>
         <canvas id="chart-dist" height="80"></canvas>
+      </div>
+      <div class="chart-wrap full">
+        <h3>Heatmap Karte (Y) × Würfelwurf (X) – normierte Siege pro Karte</h3>
+        <div id="heatmap-tabs" style="margin-bottom:8px;display:none;gap:6px;">
+          <button class="secondary" id="heatmap-tab-a">Serie A</button>
+          <button class="secondary" id="heatmap-tab-b">Serie B</button>
+        </div>
+        <canvas id="chart-heatmap" width="720" height="480" style="image-rendering:pixelated;width:100%;max-width:720px;display:block;"></canvas>
+        <div id="heatmap-legend" style="font-size:11px;color:var(--muted);margin-top:6px;"></div>
       </div>
       <div class="chart-wrap full">
         <h3>Statistik-Übersicht</h3>
@@ -358,10 +376,13 @@ function runSim(cfg, seed, strategyOverride) {
 
   const winsByCard = new Float64Array(49);
   const playsByCard = new Float64Array(49);
+  const heldByCard = new Float64Array(49);
   const winsByRoll = new Float64Array(49);
   const rollsCount = new Float64Array(49);
   const distHist = new Float64Array(49);
   const winsByPlayer = new Float64Array(P);
+  // Heatmap matrix card x roll, flat 49*49 (index 0 unused)
+  const winsByCardRoll = new Float64Array(49 * 49);
 
   let totalRounds = 0;
   let tieRounds = 0;
@@ -398,6 +419,12 @@ function runSim(cfg, seed, strategyOverride) {
       let mode = 'closest';
       if (cfg.rule === 'random5050') {
         if (rng() < 0.5) { mode = 'farthest'; farthestRounds++; }
+      }
+
+      // count holdings (card was available this round)
+      for (let p = 0; p < P; p++) {
+        const h = hands[p];
+        for (let k = 0; k < h.length; k++) heldByCard[h[k]] += 1;
       }
 
       // each player picks a card
@@ -451,6 +478,7 @@ function runSim(cfg, seed, strategyOverride) {
           winsByRoll[roll] += share;
           winsByPlayer[w] += share;
           distHist[dists[w]] += share;
+          winsByCardRoll[played[w] * 49 + roll] += share;
         }
       }
 
@@ -470,10 +498,12 @@ function runSim(cfg, seed, strategyOverride) {
   return {
     winsByCard: Array.from(winsByCard),
     playsByCard: Array.from(playsByCard),
+    heldByCard: Array.from(heldByCard),
     winsByRoll: Array.from(winsByRoll),
     rollsCount: Array.from(rollsCount),
     distHist: Array.from(distHist),
     winsByPlayer: Array.from(winsByPlayer),
+    winsByCardRoll: Array.from(winsByCardRoll),
     totalRounds, tieRounds, farthestRounds,
   };
 }
@@ -491,6 +521,10 @@ self.onmessage = function(e) {
       results.A = runSim({...cfg, strategy: 'optimal'}, seed, 'optimal');
       if (self._cancel) { self.postMessage({type:'cancelled'}); return; }
       results.B = runSim({...cfg, strategy: 'random'}, seed, 'random');
+    } else if (cfg.strategy === 'topocompare') {
+      results.A = runSim({...cfg, topology: 'line'}, seed);
+      if (self._cancel) { self.postMessage({type:'cancelled'}); return; }
+      results.B = runSim({...cfg, topology: 'circle'}, seed);
     } else {
       results.A = runSim(cfg, seed);
     }
@@ -667,11 +701,11 @@ function hashStr(s) {
 }
 
 /* ---------- Rendering ---------- */
-let chartCards = null, chartRolls = null, chartDist = null;
+let chartCards = null, chartPlays = null, chartDist = null, chartHeld = null, chartEff = null;
 
 function destroyCharts() {
-  [chartCards, chartRolls, chartDist].forEach(c => c && c.destroy());
-  chartCards = chartRolls = chartDist = null;
+  [chartCards, chartPlays, chartDist, chartHeld, chartEff].forEach(c => c && c.destroy());
+  chartCards = chartPlays = chartDist = chartHeld = chartEff = null;
 }
 
 function probWinGivenPlayed(r) {
@@ -708,16 +742,21 @@ function render(cfg, results, durationMs) {
     backgroundColor: 'rgba(255,138,79,0.7)',
   });
 
-  const datasetsRolls = [{
-    label: seriesB ? 'Optimal' : 'P(Sieg | Wurf=X)',
-    data: probWinGivenRoll(seriesA),
+  const totalPlaysA = sum(seriesA.playsByCard);
+  const playFreqA = labels.map((_, i) => totalPlaysA > 0 ? seriesA.playsByCard[i+1] / totalPlaysA : 0);
+  const datasetsPlays = [{
+    label: seriesB ? 'Optimal' : 'Anteil Auspielungen',
+    data: playFreqA,
     backgroundColor: 'rgba(79,140,255,0.7)',
   }];
-  if (seriesB) datasetsRolls.push({
-    label: 'Zufällig',
-    data: probWinGivenRoll(seriesB),
-    backgroundColor: 'rgba(255,138,79,0.7)',
-  });
+  if (seriesB) {
+    const totalPlaysB = sum(seriesB.playsByCard);
+    datasetsPlays.push({
+      label: 'Zufällig',
+      data: labels.map((_, i) => totalPlaysB > 0 ? seriesB.playsByCard[i+1] / totalPlaysB : 0),
+      backgroundColor: 'rgba(255,138,79,0.7)',
+    });
+  }
 
   const sumA = sum(seriesA.distHist);
   const distA = seriesA.distHist.map(v => sumA > 0 ? v / sumA : 0);
@@ -747,8 +786,8 @@ function render(cfg, results, durationMs) {
   chartCards = new Chart($('chart-cards'), {
     type: 'bar', data: { labels, datasets: datasetsCards }, options: common,
   });
-  chartRolls = new Chart($('chart-rolls'), {
-    type: 'bar', data: { labels, datasets: datasetsRolls }, options: common,
+  chartPlays = new Chart($('chart-plays'), {
+    type: 'bar', data: { labels, datasets: datasetsPlays }, options: common,
   });
   chartDist = new Chart($('chart-dist'), {
     type: 'bar', data: { labels: distLabels, datasets: datasetsDist }, options: common,
