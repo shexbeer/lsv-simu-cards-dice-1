@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>W48 Karten-Simulation</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181b22;
+    --panel2: #1f242d;
+    --fg: #e6e8ee;
+    --muted: #9aa3b2;
+    --accent: #4f8cff;
+    --accent2: #ff8a4f;
+    --ok: #3ddc97;
+    --warn: #ffb84f;
+    --err: #ff6b6b;
+    --border: #2a313d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .right { display: flex; gap: 8px; }
+  main {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 16px;
+    padding: 16px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .panel h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
+  .field input[type="number"], .field input[type="text"], .field select {
+    width: 100%; padding: 6px 8px; background: var(--panel2);
+    border: 1px solid var(--border); color: var(--fg); border-radius: 4px;
+    font-size: 13px;
+  }
+  .field input[type="range"] { width: 100%; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  button {
+    padding: 8px 12px; background: var(--accent); color: white; border: 0;
+    border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: var(--panel2); border: 1px solid var(--border); color: var(--fg); }
+  button.danger { background: var(--err); }
+  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
+  .progress {
+    width: 100%; height: 8px; background: var(--panel2);
+    border-radius: 4px; overflow: hidden; margin-top: 8px;
+  }
+  .progress > div { height: 100%; background: var(--accent); width: 0%; transition: width 0.15s; }
+  .status { font-size: 12px; color: var(--muted); margin-top: 6px; min-height: 1.2em; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chart-wrap { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px; }
+  .chart-wrap h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em; }
+  .chart-wrap.full { grid-column: 1 / -1; }
+  canvas { max-width: 100%; }
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px; margin-top: 8px;
+  }
+  .stat {
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px;
+  }
+  .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .stat .val { font-size: 18px; font-weight: 600; margin-top: 2px; }
+  /* Modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 24px;
+    max-width: 820px; width: 92%; max-height: 88vh; overflow-y: auto;
+    position: relative;
+  }
+  .modal h2 { margin-top: 0; }
+  .modal h3 { color: var(--accent); margin-top: 20px; }
+  .modal .close {
+    position: absolute; top: 10px; right: 12px;
+    background: transparent; color: var(--muted); font-size: 22px; padding: 4px 10px;
+  }
+  .modal code { background: var(--panel2); padding: 1px 5px; border-radius: 3px; }
+  .modal ul { padding-left: 20px; }
+  .modal li { margin: 4px 0; }
+  details { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; margin-top: 8px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  pre { background: var(--panel2); padding: 8px; border-radius: 4px; overflow-x: auto;
+    font-size: 11px; }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    .charts { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>W48 Karten-Simulation</h1>
+  <div class="right">
+    <button class="secondary" id="btn-help">Hilfe</button>
+  </div>
+</header>
+
+<main>
+  <!-- Konfiguration -->
+  <section class="panel">
+    <h2>Konfiguration</h2>
+
+    <div class="field">
+      <label>Spieleranzahl</label>
+      <select id="cfg-players">
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Topologie</label>
+      <select id="cfg-topology">
+        <option value="line">Zahlenstrahl (1…48)</option>
+        <option value="circle">Kreis (mod 48)</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Gewinnregel</label>
+      <select id="cfg-rule">
+        <option value="closest">Immer nächste Karte gewinnt</option>
+        <option value="random5050">50/50 nächste / weiteste pro Runde</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Tie-Bruch (bei gleicher Distanz)</label>
+      <select id="cfg-tie">
+        <option value="share">Geteilt (1/k pro Spieler)</option>
+        <option value="random">Zufällig einer gewinnt</option>
+        <option value="none">Niemand gewinnt</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Strategie</label>
+      <select id="cfg-strategy">
+        <option value="optimal">Optimal</option>
+        <option value="random">Zufällig</option>
+        <option value="both">Beide vergleichen</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Anzahl Simulations-Spiele: <span id="cfg-runs-val">10000</span></label>
+      <input type="range" id="cfg-runs" min="100" max="500000" step="100" value="10000" />
+      <input type="number" id="cfg-runs-num" min="1" max="2000000" value="10000" />
+    </div>
+
+    <div class="field">
+      <label>Seed (optional, leer = zufällig)</label>
+      <input type="text" id="cfg-seed" placeholder="z.B. 42" />
+    </div>
+
+    <div class="btnrow">
+      <button id="btn-run">Start</button>
+      <button id="btn-cancel" class="danger" disabled>Abbrechen</button>
+      <button id="btn-reset" class="secondary">Reset</button>
+      <button id="btn-csv" class="secondary" disabled>CSV</button>
+    </div>
+
+    <div class="progress"><div id="progress-bar"></div></div>
+    <div class="status" id="status">Bereit.</div>
+  </section>
+
+  <!-- Ergebnisse -->
+  <section>
+    <div class="charts">
+      <div class="chart-wrap">
+        <h3>P(Karte gewinnt | gespielt) – über Index 1…48</h3>
+        <canvas id="chart-cards"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <h3>P(Gewinn | Würfelwurf = X)</h3>
+        <canvas id="chart-rolls"></canvas>
+      </div>
+      <div class="chart-wrap full">
+        <h3>Histogramm: Distanz der Siegerkarte zum Wurf</h3>
+        <canvas id="chart-dist" height="80"></canvas>
+      </div>
+      <div class="chart-wrap full">
+        <h3>Statistik-Übersicht</h3>
+        <div id="stats-area"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Hilfe Modal -->
+<div class="modal-backdrop" id="help-modal">
+  <div class="modal">
+    <button class="close" id="btn-help-close" aria-label="Schließen">×</button>
+    <h2>Hilfe & Erklärung</h2>
+
+    <h3>Spielregeln</h3>
+    <ul>
+      <li>Es gibt <b>48 Karten</b> mit den Indizes 1 bis 48.</li>
+      <li><b>2–4 Spieler</b> ziehen je <b>5 Karten</b> auf die Hand.</li>
+      <li>Pro Runde wird ein <b>W48</b> geworfen (gleichverteilt 1…48).</li>
+      <li>Jeder Spieler legt verdeckt <b>eine Karte</b> aus seiner Hand aus.</li>
+      <li>Je nach gewählter Regel gewinnt die Karte, die dem Wurf am <b>nächsten</b>
+        (oder am <b>weitesten</b>) liegt.</li>
+      <li>Ausgespielte Karten sind weg. Jeder Spieler zieht aus dem
+        <b>Reststapel</b> nach, solange dieser nicht leer ist.</li>
+      <li>Ein Spiel endet, wenn alle Hände leer sind.</li>
+    </ul>
+
+    <h3>Modell &amp; Annahmen</h3>
+    <ul>
+      <li><b>Topologie Zahlenstrahl:</b> Distanz <code>d(a,b) = |a − b|</code>.
+        Mittlere Werte sind im Mittel näher an einem zufälligen Wurf.</li>
+      <li><b>Topologie Kreis:</b> Distanz <code>d(a,b) = min(|a−b|, 48−|a−b|)</code>.
+        Alle Positionen sind symmetrisch, die Karte hat keinen Lagevorteil.</li>
+      <li><b>Gewinnregeln:</b>
+        <ul>
+          <li><b>Immer nächste:</b> minimaler Abstand gewinnt.</li>
+          <li><b>50/50 nächste/weiteste:</b> pro Runde wird per Münzwurf
+            entschieden, ob nah oder fern gewinnt.</li>
+        </ul>
+      </li>
+      <li><b>Tie-Bruch</b> bei gleichem Abstand mehrerer Karten:
+        <ul>
+          <li><b>Geteilt:</b> jeder Beteiligte bekommt <code>1/k</code> Sieg gewertet.</li>
+          <li><b>Zufällig einer:</b> aus den Beteiligten wird einer gelost.</li>
+          <li><b>Niemand gewinnt:</b> Runde wird nicht gezählt.</li>
+        </ul>
+      </li>
+      <li><b>Strategien:</b>
+        <ul>
+          <li><b>Optimal:</b> Spieler kennt Wurf und Regel der Runde und legt
+            die in seiner Hand bestpassende Karte (min- bzw. max-Distanz).</li>
+          <li><b>Zufällig:</b> gleichverteilte Auswahl aus der Hand.</li>
+          <li><b>Beide vergleichen:</b> zwei vollständige Simulationsläufe mit
+            identischem Seed – Strategien werden als zwei Serien überlagert.</li>
+        </ul>
+      </li>
+      <li><b>RNG:</b> seedbarer Mulberry32-Pseudo-Zufallsgenerator (reproduzierbar
+        bei festem Seed).</li>
+    </ul>
+
+    <h3>Bedienung</h3>
+    <ul>
+      <li>Konfiguration links einstellen, <b>Start</b> drücken.</li>
+      <li><b>Anzahl Simulations-Spiele:</b> wie viele komplette Spiele (nicht
+        Einzelrunden) simuliert werden. 10k–100k liefern schon gut stabile Kurven.</li>
+      <li><b>Seed:</b> leer lassen für jedes Mal neuen Zufall; eintragen für
+        bit-identische Reproduzierbarkeit.</li>
+      <li><b>Abbrechen</b> stoppt einen laufenden Lauf, Zwischenstand wird verworfen.</li>
+      <li><b>Reset</b> setzt Anzeigen und Konfiguration auf Standard zurück.</li>
+      <li><b>CSV</b> exportiert alle Roh-Zähler und abgeleiteten Wahrscheinlichkeiten
+        als Tabelle.</li>
+    </ul>
+
+    <h3>Was die Charts zeigen</h3>
+    <ul>
+      <li><b>P(Karte gewinnt | gespielt):</b> Wie häufig führt das Ausspielen einer
+        bestimmten Karte zum Sieg? Bei „Optimal“ + „Zahlenstrahl“ entsteht der
+        klassische Vorteil mittlerer Karten; auf dem „Kreis“ wird die Kurve flach.</li>
+      <li><b>P(Gewinn | Wurf = X):</b> Plausibilitätscheck: bei Tie-Bruch „Geteilt“
+        oder „Zufällig einer“ liegt der Wert ≈ 1; bei „Niemand gewinnt“ ist er
+        kleiner und zeigt die Tie-Rate.</li>
+      <li><b>Siegerdistanz-Histogramm:</b> Wie nah/fern war die Siegerkarte
+        typischerweise am Wurf?</li>
+    </ul>
+
+    <h3>Interpretationshinweise</h3>
+    <ul>
+      <li><b>Zufällig + 50/50:</b> P(Karte gewinnt | gespielt) ≈ 1/Spieleranzahl
+        und über alle Indizes flach.</li>
+      <li><b>Optimal + 50/50 + Zahlenstrahl:</b> Randkarten (1, 48) bekommen ihren
+        Wert in den „weiteste gewinnt“-Runden zurück; Mittelkarten verlieren dort.</li>
+      <li><b>Performance:</b> Die Simulation läuft in einem Web Worker; die
+        Oberfläche bleibt während des Laufs bedienbar.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+/* ===========================================================================
+ * Inline Web-Worker-Quelltext
+ * =========================================================================== */
+const WORKER_SRC = `
+"use strict";
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function() {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffle(arr, rng) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+  return arr;
+}
+
+function distLine(a, b) { return Math.abs(a - b); }
+function distCircle(a, b) { const d = Math.abs(a - b); return Math.min(d, 48 - d); }
+
+function pickCard(hand, roll, mode, distFn) {
+  // mode: 'closest' or 'farthest'
+  let bestIdx = 0;
+  let bestVal = distFn(hand[0], roll);
+  for (let i = 1; i < hand.length; i++) {
+    const v = distFn(hand[i], roll);
+    if (mode === 'closest' ? v < bestVal : v > bestVal) {
+      bestVal = v; bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+function runSim(cfg, seed, strategyOverride) {
+  const rng = mulberry32(seed);
+  const N = cfg.runs;
+  const P = cfg.players;
+  const distFn = cfg.topology === 'circle' ? distCircle : distLine;
+  const strategy = strategyOverride || cfg.strategy;
+
+  const winsByCard = new Float64Array(49);
+  const playsByCard = new Float64Array(49);
+  const winsByRoll = new Float64Array(49);
+  const rollsCount = new Float64Array(49);
+  const distHist = new Float64Array(49);
+  const winsByPlayer = new Float64Array(P);
+
+  let totalRounds = 0;
+  let tieRounds = 0;
+  let farthestRounds = 0;
+
+  const reportEvery = Math.max(1, Math.floor(N / 50));
+
+  const deck = new Int32Array(48);
+  for (let i = 0; i < 48; i++) deck[i] = i + 1;
+
+  const hands = new Array(P);
+  for (let p = 0; p < P; p++) hands[p] = [];
+
+  for (let game = 0; game < N; game++) {
+    if (game % 2000 === 0 && self._cancel) return null;
+
+    // shuffle deck
+    for (let i = 0; i < 48; i++) deck[i] = i + 1;
+    shuffle(deck, rng);
+
+    // deal 5 cards to each
+    let deckPtr = 0;
+    for (let p = 0; p < P; p++) {
+      hands[p].length = 0;
+      for (let k = 0; k < 5; k++) hands[p].push(deck[deckPtr++]);
+    }
+
+    // play rounds until all hands empty
+    while (hands[0].length > 0) {
+      const roll = 1 + Math.floor(rng() * 48);
+      rollsCount[roll] += 1;
+      totalRounds++;
+
+      let mode = 'closest';
+      if (cfg.rule === 'random5050') {
+        if (rng() < 0.5) { mode = 'farthest'; farthestRounds++; }
+      }
+
+      // each player picks a card
+      const played = new Array(P);
+      const dists = new Array(P);
+      for (let p = 0; p < P; p++) {
+        let idx;
+        if (strategy === 'random') {
+          idx = Math.floor(rng() * hands[p].length);
+        } else {
+          idx = pickCard(hands[p], roll, mode, distFn);
+        }
+        const card = hands[p][idx];
+        played[p] = card;
+        dists[p] = distFn(card, roll);
+        playsByCard[card] += 1;
+        // remove from hand (swap with last)
+        hands[p][idx] = hands[p][hands[p].length - 1];
+        hands[p].pop();
+      }
+
+      // determine winners
+      let bestDist = dists[0];
+      for (let p = 1; p < P; p++) {
+        if (mode === 'closest' ? dists[p] < bestDist : dists[p] > bestDist) {
+          bestDist = dists[p];
+        }
+      }
+      const winnersIdx = [];
+      for (let p = 0; p < P; p++) {
+        if (dists[p] === bestDist) winnersIdx.push(p);
+      }
+
+      if (winnersIdx.length > 1) tieRounds++;
+
+      if (cfg.tie === 'none' && winnersIdx.length > 1) {
+        // no winner
+      } else {
+        let chosenWinners;
+        let share;
+        if (winnersIdx.length === 1) {
+          chosenWinners = winnersIdx; share = 1;
+        } else if (cfg.tie === 'share') {
+          chosenWinners = winnersIdx; share = 1 / winnersIdx.length;
+        } else { // 'random'
+          chosenWinners = [winnersIdx[Math.floor(rng() * winnersIdx.length)]];
+          share = 1;
+        }
+        for (const w of chosenWinners) {
+          winsByCard[played[w]] += share;
+          winsByRoll[roll] += share;
+          winsByPlayer[w] += share;
+          distHist[dists[w]] += share;
+        }
+      }
+
+      // draw up from rest deck
+      for (let p = 0; p < P; p++) {
+        if (deckPtr < 48) {
+          hands[p].push(deck[deckPtr++]);
+        }
+      }
+    }
+
+    if ((game + 1) % reportEvery === 0) {
+      self.postMessage({ type: 'progress', done: game + 1, total: N });
+    }
+  }
+
+  return {
+    winsByCard: Array.from(winsByCard),
+    playsByCard: Array.from(playsByCard),
+    winsByRoll: Array.from(winsByRoll),
+    rollsCount: Array.from(rollsCount),
+    distHist: Array.from(distHist),
+    winsByPlayer: Array.from(winsByPlayer),
+    totalRounds, tieRounds, farthestRounds,
+  };
+}
+
+self.onmessage = function(e) {
+  const msg = e.data;
+  if (msg.cmd === 'cancel') { self._cancel = true; return; }
+  if (msg.cmd === 'run') {
+    self._cancel = false;
+    const t0 = performance.now();
+    const cfg = msg.cfg;
+    const seed = msg.seed;
+    const results = { A: null, B: null };
+    if (cfg.strategy === 'both') {
+      results.A = runSim({...cfg, strategy: 'optimal'}, seed, 'optimal');
+      if (self._cancel) { self.postMessage({type:'cancelled'}); return; }
+      results.B = runSim({...cfg, strategy: 'random'}, seed, 'random');
+    } else {
+      results.A = runSim(cfg, seed);
+    }
+    if (self._cancel) { self.postMessage({type:'cancelled'}); return; }
+    const t1 = performance.now();
+    self.postMessage({ type: 'result', results, durationMs: t1 - t0 });
+  }
+};
+`;
+
+/* ===========================================================================
+ * Main thread
+ * =========================================================================== */
+const $ = (id) => document.getElementById(id);
+
+// UI elements
+const elPlayers = $('cfg-players');
+const elTopology = $('cfg-topology');
+const elRule = $('cfg-rule');
+const elTie = $('cfg-tie');
+const elStrategy = $('cfg-strategy');
+const elRuns = $('cfg-runs');
+const elRunsNum = $('cfg-runs-num');
+const elRunsVal = $('cfg-runs-val');
+const elSeed = $('cfg-seed');
+const btnRun = $('btn-run');
+const btnCancel = $('btn-cancel');
+const btnReset = $('btn-reset');
+const btnCsv = $('btn-csv');
+const elProgress = $('progress-bar');
+const elStatus = $('status');
+const elStats = $('stats-area');
+
+// Runs slider <-> number sync
+elRuns.addEventListener('input', () => {
+  elRunsNum.value = elRuns.value;
+  elRunsVal.textContent = elRuns.value;
+  saveConfig();
+});
+elRunsNum.addEventListener('input', () => {
+  elRunsVal.textContent = elRunsNum.value;
+  if (+elRunsNum.value <= +elRuns.max) elRuns.value = elRunsNum.value;
+  saveConfig();
+});
+['cfg-players','cfg-topology','cfg-rule','cfg-tie','cfg-strategy','cfg-seed']
+  .forEach(id => $(id).addEventListener('change', saveConfig));
+
+// Help modal
+const helpModal = $('help-modal');
+$('btn-help').onclick = () => helpModal.classList.add('open');
+$('btn-help-close').onclick = () => helpModal.classList.remove('open');
+helpModal.onclick = (e) => { if (e.target === helpModal) helpModal.classList.remove('open'); };
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') helpModal.classList.remove('open');
+});
+
+// Config persistence
+function getConfig() {
+  return {
+    players: +elPlayers.value,
+    topology: elTopology.value,
+    rule: elRule.value,
+    tie: elTie.value,
+    strategy: elStrategy.value,
+    runs: Math.max(1, Math.min(2000000, +elRunsNum.value || 10000)),
+    seedStr: elSeed.value.trim(),
+  };
+}
+function saveConfig() {
+  try { localStorage.setItem('w48cfg', JSON.stringify(getConfig())); } catch(_) {}
+}
+function loadConfig() {
+  try {
+    const s = localStorage.getItem('w48cfg');
+    if (!s) return;
+    const c = JSON.parse(s);
+    if (c.players) elPlayers.value = c.players;
+    if (c.topology) elTopology.value = c.topology;
+    if (c.rule) elRule.value = c.rule;
+    if (c.tie) elTie.value = c.tie;
+    if (c.strategy) elStrategy.value = c.strategy;
+    if (c.runs) { elRuns.value = Math.min(c.runs, +elRuns.max); elRunsNum.value = c.runs; elRunsVal.textContent = c.runs; }
+    if (c.seedStr != null) elSeed.value = c.seedStr;
+  } catch(_) {}
+}
+loadConfig();
+
+// Worker management
+let worker = null;
+let lastResults = null;
+let lastCfg = null;
+
+function makeWorker() {
+  const blob = new Blob([WORKER_SRC], { type: 'application/javascript' });
+  return new Worker(URL.createObjectURL(blob));
+}
+
+function setRunning(on) {
+  btnRun.disabled = on;
+  btnCancel.disabled = !on;
+  btnReset.disabled = on;
+  if (on) btnCsv.disabled = true;
+}
+
+btnRun.onclick = () => {
+  const cfg = getConfig();
+  lastCfg = cfg;
+  const seedNum = cfg.seedStr === '' ? (Math.random() * 2**31) | 0 : (parseInt(cfg.seedStr, 10) || hashStr(cfg.seedStr));
+  elStatus.textContent = `Läuft… (Seed = ${seedNum})`;
+  elProgress.style.width = '0%';
+  setRunning(true);
+
+  worker = makeWorker();
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === 'progress') {
+      const pct = (m.done / m.total) * 100;
+      elProgress.style.width = pct.toFixed(1) + '%';
+      elStatus.textContent = `Läuft… ${m.done.toLocaleString('de-DE')} / ${m.total.toLocaleString('de-DE')} Spiele`;
+    } else if (m.type === 'result') {
+      lastResults = m.results;
+      elProgress.style.width = '100%';
+      elStatus.textContent = `Fertig in ${(m.durationMs/1000).toFixed(2)} s.`;
+      setRunning(false);
+      btnCsv.disabled = false;
+      render(cfg, m.results, m.durationMs);
+      worker.terminate(); worker = null;
+    } else if (m.type === 'cancelled') {
+      elStatus.textContent = 'Abgebrochen.';
+      setRunning(false);
+      worker.terminate(); worker = null;
+    }
+  };
+  worker.postMessage({ cmd: 'run', cfg, seed: seedNum });
+};
+
+btnCancel.onclick = () => {
+  if (worker) worker.postMessage({ cmd: 'cancel' });
+};
+
+btnReset.onclick = () => {
+  localStorage.removeItem('w48cfg');
+  elPlayers.value = '4';
+  elTopology.value = 'line';
+  elRule.value = 'closest';
+  elTie.value = 'share';
+  elStrategy.value = 'optimal';
+  elRuns.value = '10000'; elRunsNum.value = '10000'; elRunsVal.textContent = '10000';
+  elSeed.value = '';
+  lastResults = null; lastCfg = null;
+  elStats.innerHTML = '';
+  elStatus.textContent = 'Bereit.';
+  elProgress.style.width = '0%';
+  btnCsv.disabled = true;
+  destroyCharts();
+};
+
+btnCsv.onclick = () => {
+  if (!lastResults) return;
+  const csv = buildCsv(lastCfg, lastResults);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'w48_simulation.csv'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+function hashStr(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i); h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/* ---------- Rendering ---------- */
+let chartCards = null, chartRolls = null, chartDist = null;
+
+function destroyCharts() {
+  [chartCards, chartRolls, chartDist].forEach(c => c && c.destroy());
+  chartCards = chartRolls = chartDist = null;
+}
+
+function probWinGivenPlayed(r) {
+  const arr = new Array(48);
+  for (let i = 1; i <= 48; i++) {
+    arr[i-1] = r.playsByCard[i] > 0 ? r.winsByCard[i] / r.playsByCard[i] : 0;
+  }
+  return arr;
+}
+function probWinGivenRoll(r) {
+  const arr = new Array(48);
+  for (let i = 1; i <= 48; i++) {
+    arr[i-1] = r.rollsCount[i] > 0 ? r.winsByRoll[i] / r.rollsCount[i] : 0;
+  }
+  return arr;
+}
+
+function render(cfg, results, durationMs) {
+  destroyCharts();
+  const labels = Array.from({length: 48}, (_, i) => i + 1);
+  const distLabels = Array.from({length: 49}, (_, i) => i);
+
+  const seriesA = results.A;
+  const seriesB = results.B;
+
+  const datasetsCards = [{
+    label: seriesB ? 'Optimal' : 'P(Sieg | gespielt)',
+    data: probWinGivenPlayed(seriesA),
+    backgroundColor: 'rgba(79,140,255,0.7)',
+  }];
+  if (seriesB) datasetsCards.push({
+    label: 'Zufällig',
+    data: probWinGivenPlayed(seriesB),
+    backgroundColor: 'rgba(255,138,79,0.7)',
+  });
+
+  const datasetsRolls = [{
+    label: seriesB ? 'Optimal' : 'P(Sieg | Wurf=X)',
+    data: probWinGivenRoll(seriesA),
+    backgroundColor: 'rgba(79,140,255,0.7)',
+  }];
+  if (seriesB) datasetsRolls.push({
+    label: 'Zufällig',
+    data: probWinGivenRoll(seriesB),
+    backgroundColor: 'rgba(255,138,79,0.7)',
+  });
+
+  const sumA = sum(seriesA.distHist);
+  const distA = seriesA.distHist.map(v => sumA > 0 ? v / sumA : 0);
+  const datasetsDist = [{
+    label: seriesB ? 'Optimal' : 'Anteil',
+    data: distA,
+    backgroundColor: 'rgba(79,140,255,0.7)',
+  }];
+  if (seriesB) {
+    const sumB = sum(seriesB.distHist);
+    datasetsDist.push({
+      label: 'Zufällig',
+      data: seriesB.distHist.map(v => sumB > 0 ? v / sumB : 0),
+      backgroundColor: 'rgba(255,138,79,0.7)',
+    });
+  }
+
+  const common = {
+    responsive: true,
+    plugins: { legend: { labels: { color: '#e6e8ee' } } },
+    scales: {
+      x: { ticks: { color: '#9aa3b2' }, grid: { color: '#2a313d' } },
+      y: { ticks: { color: '#9aa3b2' }, grid: { color: '#2a313d' }, beginAtZero: true },
+    },
+  };
+
+  chartCards = new Chart($('chart-cards'), {
+    type: 'bar', data: { labels, datasets: datasetsCards }, options: common,
+  });
+  chartRolls = new Chart($('chart-rolls'), {
+    type: 'bar', data: { labels, datasets: datasetsRolls }, options: common,
+  });
+  chartDist = new Chart($('chart-dist'), {
+    type: 'bar', data: { labels: distLabels, datasets: datasetsDist }, options: common,
+  });
+
+  // Stats
+  renderStats(cfg, results, durationMs);
+}
+
+function renderStats(cfg, r, durationMs) {
+  const a = r.A;
+  const tieRate = a.totalRounds > 0 ? a.tieRounds / a.totalRounds : 0;
+  const farRate = a.totalRounds > 0 ? a.farthestRounds / a.totalRounds : 0;
+  const rps = durationMs > 0 ? (a.totalRounds / (durationMs/1000)) : 0;
+
+  const playersHtml = a.winsByPlayer.map((w, i) =>
+    `<div class="stat"><div class="lbl">Spieler ${i+1} Siege</div>
+     <div class="val">${fmt(w)}</div></div>`).join('');
+
+  let cmpHtml = '';
+  if (r.B) {
+    const b = r.B;
+    cmpHtml = `
+      <div class="stat"><div class="lbl">Ø Siege/Spieler (Optimal)</div>
+        <div class="val">${fmt(sum(a.winsByPlayer)/cfg.players)}</div></div>
+      <div class="stat"><div class="lbl">Ø Siege/Spieler (Zufällig)</div>
+        <div class="val">${fmt(sum(b.winsByPlayer)/cfg.players)}</div></div>
+    `;
+  }
+
+  elStats.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat"><div class="lbl">Simulierte Spiele</div>
+        <div class="val">${cfg.runs.toLocaleString('de-DE')}</div></div>
+      <div class="stat"><div class="lbl">Gesamtrunden</div>
+        <div class="val">${a.totalRounds.toLocaleString('de-DE')}</div></div>
+      <div class="stat"><div class="lbl">Tie-Rate</div>
+        <div class="val">${(tieRate*100).toFixed(2)} %</div></div>
+      ${cfg.rule === 'random5050' ?
+        `<div class="stat"><div class="lbl">Anteil "weiteste"-Runden</div>
+         <div class="val">${(farRate*100).toFixed(2)} %</div></div>` : ''}
+      <div class="stat"><div class="lbl">Runden / Sekunde</div>
+        <div class="val">${Math.round(rps).toLocaleString('de-DE')}</div></div>
+      <div class="stat"><div class="lbl">Dauer</div>
+        <div class="val">${(durationMs/1000).toFixed(2)} s</div></div>
+      ${cmpHtml}
+      ${playersHtml}
+    </div>
+  `;
+}
+
+function sum(arr) { let s = 0; for (const v of arr) s += v; return s; }
+function fmt(x) {
+  if (Number.isInteger(x)) return x.toLocaleString('de-DE');
+  return x.toLocaleString('de-DE', { maximumFractionDigits: 2 });
+}
+
+function buildCsv(cfg, results) {
+  const lines = [];
+  lines.push(`# W48-Simulation`);
+  lines.push(`# Spieler=${cfg.players}; Topologie=${cfg.topology}; Regel=${cfg.rule}; Tie=${cfg.tie}; Strategie=${cfg.strategy}; Runs=${cfg.runs}`);
+  const hasB = !!results.B;
+  const headParts = ['index','plays_A','wins_A','p_win_A'];
+  if (hasB) headParts.push('plays_B','wins_B','p_win_B');
+  headParts.push('rolls_A','wins_by_roll_A','p_win_given_roll_A');
+  if (hasB) headParts.push('rolls_B','wins_by_roll_B','p_win_given_roll_B');
+  lines.push(headParts.join(','));
+  const a = results.A, b = results.B;
+  for (let i = 1; i <= 48; i++) {
+    const row = [i, a.playsByCard[i], a.winsByCard[i],
+      a.playsByCard[i] > 0 ? (a.winsByCard[i]/a.playsByCard[i]).toFixed(6) : '0'];
+    if (hasB) row.push(b.playsByCard[i], b.winsByCard[i],
+      b.playsByCard[i] > 0 ? (b.winsByCard[i]/b.playsByCard[i]).toFixed(6) : '0');
+    row.push(a.rollsCount[i], a.winsByRoll[i],
+      a.rollsCount[i] > 0 ? (a.winsByRoll[i]/a.rollsCount[i]).toFixed(6) : '0');
+    if (hasB) row.push(b.rollsCount[i], b.winsByRoll[i],
+      b.rollsCount[i] > 0 ? (b.winsByRoll[i]/b.rollsCount[i]).toFixed(6) : '0');
+    lines.push(row.join(','));
+  }
+  return lines.join('\n');
+}
+</script>
+</body>
+</html>
